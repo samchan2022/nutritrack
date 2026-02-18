@@ -1,0 +1,80 @@
+services:
+  # ─── PostgreSQL Database ────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: nutrigoal_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: nutrigoal
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d nutrigoal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ─── Next.js App (Frontend + Backend) ───────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: nutrigoal_app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount source code for hot reload
+      - .:/app
+      # Preserve container's node_modules (don't override with host's)
+      - /app/node_modules
+      # Preserve Next.js build cache
+      - /app/.next
+    environment:
+      # Override DB URL to point to the docker service — takes precedence over env_file
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/nutrigoal
+      NEXTAUTH_URL: http://localhost:3000
+      # Set a default dev secret (override in .env.local for anything real)
+      NEXTAUTH_SECRET: dev-only-secret-change-for-production
+      NODE_ENV: development
+    # Load API keys (OPENAI_API_KEY, STRIPE_*, etc.) from your .env.local
+    env_file:
+      - path: .env.local
+        required: false   # won't fail if file doesn't exist yet
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ─── Prisma Studio (DB GUI) — optional, comment out if not needed ────────────
+  studio:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: nutrigoal_studio
+    restart: unless-stopped
+    ports:
+      - "5555:5555"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/nutrigoal
+    env_file:
+      - path: .env.local
+        required: false
+    command: ["npx", "prisma", "studio", "--port", "5555", "--browser", "none"]
+    depends_on:
+      db:
+        condition: service_healthy
+    profiles:
+      # Only starts when explicitly requested:  docker compose --profile studio up
+      - studio
+
+volumes:
+  postgres_data:
+    driver: local

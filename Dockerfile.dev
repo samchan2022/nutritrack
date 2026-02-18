@@ -1,0 +1,22 @@
+FROM node:20-alpine
+
+# Install compatibility libs for native modules (bcryptjs, etc.)
+RUN apk add --no-cache libc6-compat openssl
+
+WORKDIR /app
+
+# Copy package files and prisma schema first for layer caching
+COPY package*.json ./
+COPY prisma ./prisma/
+
+# Install all dependencies (including devDependencies for hot reload)
+RUN npm install
+
+# Prisma client is generated in postinstall, but run explicitly to be safe
+RUN npx prisma generate
+
+EXPOSE 3000
+
+# Entrypoint: push schema then start dev server
+# Source is mounted as a volume — this just runs the process
+CMD ["sh", "-c", "npx prisma db push --skip-generate && npm run dev"]
